@@ -1,0 +1,209 @@
+﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using SolisScraper.Models;
+
+namespace SolisScraper
+{
+	public class ScraperService : BackgroundService
+	{
+		private readonly MqttConfiguration _configuration;
+		private readonly MqttTransmitter _mqttClient;
+		private readonly SolarClient _solarClient;
+		private SolarScrapeResult _previousResult;
+		private State _state;
+		private readonly ILogger _logger;
+
+		public ScraperService(SolarClient solarClient, MqttTransmitter mqttClient, IOptions<MqttConfiguration> options, ILogger<ScraperService> logger)
+		{
+			_logger = logger;
+			_configuration = options.Value;
+			_mqttClient = mqttClient;
+			_solarClient = solarClient;
+		}
+
+		private string TopicState => $"solis_scraper/sensor/{_configuration.NodeId}/state";
+
+		private string TopicConfig(string name) => $"{_configuration.DiscoveryPrefix}/sensor/{_configuration.NodeId}/{name}/config";
+
+		private async Task SendEntityConfigurations()
+		{
+			var device = new HassDevice
+			{
+				Identifiers = new[]
+				{
+					_configuration.NodeId
+				},
+				Name = "Solis Energy"
+			};
+
+			await RetryUntilSuccess(() =>
+				_mqttClient.Send(TopicConfig("solis-now"), new HassConfig
+				{
+					DeviceClass = "energy",
+					Name = "Solis Energy Production (now)",
+					StateTopic = TopicState,
+					UnitOfMeasurement = "W",
+					ValueTemplate = "{{ value_json.watt_now }}",
+					StateClass = "measurement",
+					ForceUpdate = true,
+					Icon = "mdi:solar-power",
+					Device = device,
+					UniqueId = $"{_configuration.UniqueIdPrefix}_now"
+				})
+			);
+
+			await RetryUntilSuccess(() =>
+				_mqttClient.Send(TopicConfig("solis-today"), new HassConfig
+				{
+					DeviceClass = "energy",
+					Name = "Solis Energy Production (today)",
+					StateTopic = TopicState,
+					UnitOfMeasurement = "kWh",
+					ValueTemplate = "{{ value_json.kilo_watt_today }}",
+					StateClass = "total_increasing",
+					ForceUpdate = true,
+					Icon = "mdi:solar-power",
+					Device = device,
+					UniqueId = $"{_configuration.UniqueIdPrefix}_today"
+				})
+			);
+
+			await RetryUntilSuccess(() =>
+				_mqttClient.Send(TopicConfig("solis-total"), new HassConfig
+				{
+					DeviceClass = "energy",
+					Name = "Solis Energy Production (total)",
+					StateTopic = TopicState,
+					UnitOfMeasurement = "kWh",
+					ValueTemplate = "{{ value_json.kilo_watt_total }}",
+					StateClass = "total_increasing",
+					ForceUpdate = true,
+					Icon = "mdi:solar-power",
+					Device = device,
+					UniqueId = $"{_configuration.UniqueIdPrefix}_total"
+				})
+			);
+		}
+
+		private void SetState(State state)
+		{
+			if (_state != state)
+			{
+				_logger.LogInformation($"State transitioned from {_state} to {state}.");
+				_state = state;
+			}
+		}
+
+		protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+		{
+			await RetryUntilSuccess(() => _mqttClient.Start());
+
+			var didSetup = false;
+
+			while (!stoppingToken.IsCancellationRequested)
+			{
+				try
+				{
+					// Scrape status page of remote.
+					SolarScrapeResult result = null;
+					try
+					{
+						result = await _solarClient.Scrape(stoppingToken);
+					}
+					catch (ResponseParseException)
+					{
+						SetState(State.SolarBadReply);
+					}
+					catch (TimeoutException)
+					{
+						SetState(State.SolarUnavailable);
+					}
+
+					// When no new result could be scraped, assume the remote is sleeping due to no generation. Assume the previous result with a current watt value of 0.
+					if (result == null)
+					{
+						if (_previousResult != null)
+						{
+							result = _previousResult;
+							result.Attributes = null;
+							result.WattNow = 0;
+
+							// TODO: Reset after midnight? result.KiloWattToday
+						}
+						else
+						{
+							await Task.Delay(_configuration.IntervalZero, stoppingToken);
+							continue;
+						}
+					}
+
+					// Send state to mqtt.
+					await _mqttClient.Send(TopicState, result, false);
+					_previousResult = result;
+					
+					// Send configuration of entities to mqtt after the initial state.
+					if (!didSetup)
+					{
+						await SendEntityConfigurations();
+						didSetup = true;
+					}
+
+					// Sleep for next scrape cycle.
+					SetState(State.Running);
+					await Task.Delay(result.WattNow > 0 ? _configuration.IntervalValue : _configuration.IntervalZero, stoppingToken);
+				}
+				catch (TaskCanceledException)
+				{
+					if (stoppingToken.IsCancellationRequested)
+					{
+						return;
+					}
+
+					SetState(State.Unknown);
+					await Task.Delay(_configuration.IntervalError, stoppingToken);
+				}
+				catch (Exception e)
+				{
+					SetState(State.MqttUnavailable);
+					_logger.LogError(e, "Publishing failed");
+					await Task.Delay(_configuration.IntervalError, stoppingToken);
+				}
+			}
+
+			await _mqttClient.Stop();
+		}
+
+		private async Task RetryUntilSuccess(Func<Task> action)
+		{
+			var ok = false;
+			while (!ok)
+			{
+				try
+				{
+					await action();
+					ok = true;
+				}
+				catch (Exception e)
+				{
+					_logger.LogError(e, "Action failed, retrying...");
+					await Task.Delay(1000);
+				}
+			}
+		}
+
+
+		private enum State
+		{
+			Initial,
+			SolarUnavailable,
+			SolarBadReply,
+			MqttUnavailable,
+			Running,
+			Unknown
+		}
+	}
+}
