@@ -118,8 +118,13 @@ namespace SolisScraper
 					{
 						SetState(State.SolarBadReply);
 					}
-					catch (TimeoutException)
+					catch (TaskCanceledException e)
 					{
+						if (e.CancellationToken == stoppingToken)
+						{
+							continue;
+						}
+
 						SetState(State.SolarUnavailable);
 					}
 
@@ -156,7 +161,7 @@ namespace SolisScraper
 					SetState(State.Running);
 					await Task.Delay(result.WattNow > 0 ? _configuration.IntervalValue : _configuration.IntervalZero, stoppingToken);
 				}
-				catch (TaskCanceledException)
+				catch (TaskCanceledException e)
 				{
 					if (stoppingToken.IsCancellationRequested)
 					{
