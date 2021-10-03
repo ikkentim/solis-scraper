@@ -13,6 +13,7 @@ namespace SolisScraper.Models
 		public string DiscoveryPrefix { get; set; } = "homeassistant";
 		public string NodeId { get; set; } = "solis";
 		public string UniqueIdPrefix { get; set; } = "solis_scraper";
+		public int FailureCap { get; set; } = 5;
 		
 		public TimeSpan IntervalError { get; set; } = TimeSpan.FromSeconds(30);
 		public TimeSpan IntervalZero { get; set; } = TimeSpan.FromSeconds(60);

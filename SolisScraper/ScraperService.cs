@@ -103,6 +103,7 @@ namespace SolisScraper
 			await RetryUntilSuccess(() => _mqttClient.Start());
 
 			var didSetup = false;
+			var failures = 0;
 
 			while (!stoppingToken.IsCancellationRequested)
 			{
@@ -113,10 +114,17 @@ namespace SolisScraper
 					try
 					{
 						result = await _solarClient.Scrape(stoppingToken);
+						failures = 0;
 					}
 					catch (ResponseParseException e)
 					{
 						SetState(State.SolarBadReply, e.Message);
+
+						if (failures++ < _configuration.FailureCap)
+						{
+							await Task.Delay(_configuration.IntervalError, stoppingToken);
+							continue;
+						}
 					}
 					catch (TaskCanceledException e)
 					{
@@ -126,6 +134,12 @@ namespace SolisScraper
 						}
 
 						SetState(State.SolarUnavailable, e.Message);
+						
+						if (failures++ < _configuration.FailureCap)
+						{
+							await Task.Delay(_configuration.IntervalError, stoppingToken);
+							continue;
+						}
 					}
 
 					// When no new result could be scraped, assume the remote is sleeping due to no generation. Assume the previous result with a current watt value of 0.
