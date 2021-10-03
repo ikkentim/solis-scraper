@@ -89,11 +89,11 @@ namespace SolisScraper
 			);
 		}
 
-		private void SetState(State state)
+		private void SetState(State state, string message = null)
 		{
 			if (_state != state)
 			{
-				_logger.LogInformation($"State transitioned from {_state} to {state}.");
+				_logger.LogInformation($"State transitioned from {_state} to {state}. {message}");
 				_state = state;
 			}
 		}
@@ -114,9 +114,9 @@ namespace SolisScraper
 					{
 						result = await _solarClient.Scrape(stoppingToken);
 					}
-					catch (ResponseParseException)
+					catch (ResponseParseException e)
 					{
-						SetState(State.SolarBadReply);
+						SetState(State.SolarBadReply, e.Message);
 					}
 					catch (TaskCanceledException e)
 					{
@@ -125,7 +125,7 @@ namespace SolisScraper
 							continue;
 						}
 
-						SetState(State.SolarUnavailable);
+						SetState(State.SolarUnavailable, e.Message);
 					}
 
 					// When no new result could be scraped, assume the remote is sleeping due to no generation. Assume the previous result with a current watt value of 0.
@@ -168,12 +168,12 @@ namespace SolisScraper
 						return;
 					}
 
-					SetState(State.Unknown);
+					SetState(State.Unknown, e.Message);
 					await Task.Delay(_configuration.IntervalError, stoppingToken);
 				}
 				catch (Exception e)
 				{
-					SetState(State.MqttUnavailable);
+					SetState(State.MqttUnavailable, e.Message);
 					_logger.LogError(e, "Publishing failed");
 					await Task.Delay(_configuration.IntervalError, stoppingToken);
 				}

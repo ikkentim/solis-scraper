@@ -7,6 +7,6 @@ namespace SolisScraper.Models
 		public string Host { get; set; }
 		public string Username { get; set; } = "admin";
 		public string Password { get; set; } = "admin";
-		public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(2);
+		public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
 	}
 }
