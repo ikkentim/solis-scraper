@@ -43,7 +43,7 @@ namespace SolisScraper
 			await RetryUntilSuccess(() =>
 				_mqttClient.Send(TopicConfig("solis-now"), new HassConfig
 				{
-					DeviceClass = "energy",
+					DeviceClass = "power",
 					Name = "Solis Energy Production (now)",
 					StateTopic = TopicState,
 					UnitOfMeasurement = "W",
