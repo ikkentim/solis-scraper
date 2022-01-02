@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace SolisScraper.Models
 {
@@ -8,7 +9,23 @@ namespace SolisScraper.Models
 		public decimal KiloWattToday { get; set; }
 		public decimal KiloWattTotal { get; set; }
 
-		public Dictionary<string, string> Attributes { get; set; }
+		protected bool Equals(SolarScrapeResult other)
+		{
+			return WattNow == other.WattNow && KiloWattToday == other.KiloWattToday && KiloWattTotal == other.KiloWattTotal;
+		}
+
+		public override bool Equals(object obj)
+		{
+			if (ReferenceEquals(null, obj)) return false;
+			if (ReferenceEquals(this, obj)) return true;
+			if (obj.GetType() != this.GetType()) return false;
+			return Equals((SolarScrapeResult) obj);
+		}
+
+		public override int GetHashCode()
+		{
+			return HashCode.Combine(WattNow, KiloWattToday, KiloWattTotal);
+		}
 
 		public override string ToString()
 		{

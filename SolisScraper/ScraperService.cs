@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -104,6 +105,8 @@ namespace SolisScraper
 
 			var didSetup = false;
 			var failures = 0;
+			var sleepResultSent = false;
+			var lastState = DateTime.UtcNow;
 
 			while (!stoppingToken.IsCancellationRequested)
 			{
@@ -115,6 +118,11 @@ namespace SolisScraper
 					{
 						result = await _solarClient.Scrape(stoppingToken);
 						failures = 0;
+					}
+					catch (HttpRequestException)
+					{
+						// remote is offline, probably due to lack of power generation
+						result = null;
 					}
 					catch (ResponseParseException e)
 					{
@@ -145,13 +153,14 @@ namespace SolisScraper
 					// When no new result could be scraped, assume the remote is sleeping due to no generation. Assume the previous result with a current watt value of 0.
 					if (result == null)
 					{
-						if (_previousResult != null)
+						if (!sleepResultSent && _previousResult != null)
 						{
 							result = _previousResult;
-							result.Attributes = null;
 							result.WattNow = 0;
 
 							// TODO: Reset after midnight? result.KiloWattToday
+
+							sleepResultSent = true;
 						}
 						else
 						{
@@ -159,10 +168,27 @@ namespace SolisScraper
 							continue;
 						}
 					}
+					else
+					{
+						sleepResultSent = false;
+					}
 
+					// Filter duplicates to reduce state changes
+					if (result.Equals(_previousResult))
+					{
+						// when state did not change since last loop, check when last state was sent. if it
+						// was < IntervalDuplicateState ago, do not send the state during this loop.
+						if (DateTime.UtcNow - lastState < _configuration.IntervalDuplicateState)
+						{
+							await Task.Delay(_configuration.IntervalZero, stoppingToken);
+							continue;
+						}
+					}
+					
 					// Send state to mqtt.
 					await _mqttClient.Send(TopicState, result, false);
 					_previousResult = result;
+					lastState = DateTime.UtcNow;
 					
 					// Send configuration of entities to mqtt after the initial state.
 					if (!didSetup)

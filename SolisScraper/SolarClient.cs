@@ -49,8 +49,7 @@ namespace SolisScraper
 			{
 				WattNow = Parse("webdata_now_p", dict),
 				KiloWattToday = Parse("webdata_today_e", dict),
-				KiloWattTotal = Parse("webdata_total_e", dict),
-				Attributes = dict
+				KiloWattTotal = Parse("webdata_total_e", dict)
 			};
 		}
 

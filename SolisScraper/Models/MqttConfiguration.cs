@@ -16,7 +16,8 @@ namespace SolisScraper.Models
 		public int FailureCap { get; set; } = 5;
 		
 		public TimeSpan IntervalError { get; set; } = TimeSpan.FromSeconds(30);
-		public TimeSpan IntervalZero { get; set; } = TimeSpan.FromSeconds(60);
-		public TimeSpan IntervalValue { get; set; } = TimeSpan.FromSeconds(5);
+		public TimeSpan IntervalZero { get; set; } = TimeSpan.FromSeconds(30);
+		public TimeSpan IntervalValue { get; set; } = TimeSpan.FromSeconds(15);
+		public TimeSpan IntervalDuplicateState { get; set; } = TimeSpan.FromMinutes(15);
 	}
 }
